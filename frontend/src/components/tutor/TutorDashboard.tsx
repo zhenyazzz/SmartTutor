@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { User, Calendar, BarChart3, Users, Settings, Upload, Save, Plus, Trash2, Loader2 } from 'lucide-react';
+import { User, Calendar, BarChart3, Users, BookOpen, Settings, Upload, Save, Plus, Trash2, Loader2 } from 'lucide-react';
 import { Card } from '../ui/card';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -13,10 +13,15 @@ import { Switch } from '../ui/switch';
 import { ScheduleEditor } from './ScheduleEditor';
 import { TutorStats } from './TutorStats';
 import { StudentsList } from './StudentsList';
+import { TutorLessons } from './TutorLessons';
 import { authService } from '../../services/authService';
 import { tutorService } from '../../services/tutorService';
 
-export function TutorDashboard() {
+interface TutorDashboardProps {
+  onNavigateToChat?: () => void;
+}
+
+export function TutorDashboard({ onNavigateToChat }: TutorDashboardProps) {
   const [profile, setProfile] = useState({
     name: '',
     email: '',
@@ -192,6 +197,10 @@ export function TutorDashboard() {
           <TabsTrigger value="students" className="gap-2">
             <Users className="size-4" />
             Ученики
+          </TabsTrigger>
+          <TabsTrigger value="lessons" className="gap-2">
+            <BookOpen className="size-4" />
+            Уроки
           </TabsTrigger>
           <TabsTrigger value="stats" className="gap-2">
             <BarChart3 className="size-4" />
@@ -403,7 +412,12 @@ export function TutorDashboard() {
 
         {/* Students Tab */}
         <TabsContent value="students" className="mt-6">
-          <StudentsList />
+          <StudentsList onNavigateToChat={onNavigateToChat} />
+        </TabsContent>
+
+        {/* Lessons Tab */}
+        <TabsContent value="lessons" className="mt-6">
+          <TutorLessons />
         </TabsContent>
 
         {/* Stats Tab */}

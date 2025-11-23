@@ -150,8 +150,8 @@ export function BookingModal({ isOpen, onClose, tutorId, tutorName, hourlyRate, 
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-2xl max-h-[90vh] !flex !flex-col overflow-hidden p-0">
-        <DialogHeader className="flex-shrink-0 px-6 pt-6 pb-4">
+      <DialogContent className="max-w-2xl max-h-[85vh] p-0 overflow-hidden" style={{ display: 'flex', flexDirection: 'column', maxHeight: '85vh' }}>
+        <DialogHeader className="flex-shrink-0 px-6 pt-6 pb-4 border-b" style={{ flexShrink: 0 }}>
           <DialogTitle>
             {step === 1 && 'Выберите дату и время'}
             {step === 2 && 'Подтверждение записи'}
@@ -159,7 +159,7 @@ export function BookingModal({ isOpen, onClose, tutorId, tutorName, hourlyRate, 
           </DialogTitle>
         </DialogHeader>
 
-        <div className="flex-1 overflow-y-auto px-6 min-h-0">
+        <div className="flex-1 overflow-y-auto overflow-x-hidden px-6 pt-4 pb-2" style={{ minHeight: 0, overflowY: 'auto', flex: '1 1 0%' }}>
         {step === 1 && (
           <div className="space-y-6">
             {/* Subject Selection */}
@@ -358,7 +358,7 @@ export function BookingModal({ isOpen, onClose, tutorId, tutorName, hourlyRate, 
         </div>
 
         {/* Fixed buttons at bottom */}
-        <div className="flex-shrink-0 border-t pt-4 px-6 pb-6 mt-4 bg-white">
+        <div className="flex-shrink-0 border-t pt-4 px-6 pb-6 bg-white" style={{ flexShrink: 0 }}>
           {step === 1 && (
             <div className="flex gap-3">
               <Button variant="outline" onClick={onClose} className="flex-1">

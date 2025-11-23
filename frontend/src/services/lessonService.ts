@@ -9,7 +9,7 @@ export interface Lesson {
   dateTime: string;
   duration: number;
   price: number;
-  status: 'PLANNED' | 'COMPLETED' | 'CANCELLED';
+  status: 'PENDING' | 'PLANNED' | 'APPROVED' | 'COMPLETED' | 'CANCELLED' | 'REJECTED';
 }
 
 export interface CreateLessonData {
@@ -39,6 +39,18 @@ export const lessonService = {
   getLessonsByTutor: async (tutorId: string): Promise<Lesson[]> => {
     const response = await api.get<Lesson[]>(`/lessons/tutor/${tutorId}`);
     return response.data;
+  },
+
+  // Одобрить урок
+  approveLesson: async (lessonId: string): Promise<Lesson> => {
+    const response = await api.put<{ message: string; lesson: Lesson }>(`/lessons/${lessonId}/approve`);
+    return response.data.lesson;
+  },
+
+  // Отклонить урок
+  rejectLesson: async (lessonId: string): Promise<Lesson> => {
+    const response = await api.put<{ message: string; lesson: Lesson }>(`/lessons/${lessonId}/reject`);
+    return response.data.lesson;
   }
 };
 

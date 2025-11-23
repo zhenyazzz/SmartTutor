@@ -45,7 +45,20 @@ export function ChatSystem() {
       setError(null);
       const conversations = await messageService.getConversations();
       setChats(conversations);
-      if (conversations.length > 0 && !selectedChat) {
+      
+      // Проверяем, есть ли сохраненная беседа для автоматического выбора
+      const savedConversationId = localStorage.getItem('selectedConversationId');
+      if (savedConversationId) {
+        const savedChat = conversations.find(chat => chat.conversationId === savedConversationId);
+        if (savedChat) {
+          setSelectedChat(savedChat);
+          // Удаляем сохраненный ID после использования
+          localStorage.removeItem('selectedConversationId');
+        } else if (conversations.length > 0 && !selectedChat) {
+          // Если сохраненная беседа не найдена, выбираем первую
+          setSelectedChat(conversations[0]);
+        }
+      } else if (conversations.length > 0 && !selectedChat) {
         setSelectedChat(conversations[0]);
       }
     } catch (err: any) {

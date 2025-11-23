@@ -180,7 +180,7 @@ function App() {
           />
         );
       case 'tutorDashboard':
-        return <TutorDashboard />;
+        return <TutorDashboard onNavigateToChat={() => setCurrentPage('chat')} />;
       case 'adminAnalytics':
         return <AdminAnalytics />;
       case 'adminUsers':

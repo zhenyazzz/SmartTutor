@@ -15,6 +15,8 @@ router.get('/student/:studentId', lessonController.getLessonsByStudent.bind(less
 router.get('/student', lessonController.getLessonsByStudent.bind(lessonController));
 router.get('/tutor/:tutorId', lessonController.getLessonsByTutor.bind(lessonController));
 router.delete('/:lessonId', lessonController.cancelLesson.bind(lessonController));
+router.put('/:lessonId/approve', lessonController.approveLesson.bind(lessonController));
+router.put('/:lessonId/reject', lessonController.rejectLesson.bind(lessonController));
 
 export default router;
 

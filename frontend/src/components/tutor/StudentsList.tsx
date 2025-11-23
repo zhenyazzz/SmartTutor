@@ -8,13 +8,19 @@ import { Badge } from '../ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { authService } from '../../services/authService';
 import { tutorService, Student } from '../../services/tutorService';
+import { messageService } from '../../services/messageService';
 
-export function StudentsList() {
+interface StudentsListProps {
+  onNavigateToChat?: () => void;
+}
+
+export function StudentsList({ onNavigateToChat }: StudentsListProps) {
   const [students, setStudents] = useState<Student[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [openingChat, setOpeningChat] = useState<string | null>(null);
 
   // Загрузка студентов
   useEffect(() => {
@@ -77,7 +83,31 @@ export function StudentsList() {
   const activeStudents = students.filter(s => s.status === 'active').length;
   const totalLessons = students.reduce((sum, s) => sum + s.lessonsCompleted, 0);
 
-  // Генерируем аватар на основе имени
+  // Обработка клика на кнопку "Написать"
+  const handleMessageClick = async (student: Student) => {
+    try {
+      setOpeningChat(student.id);
+      
+      // Получаем или создаем беседу с этим студентом
+      const { conversationId } = await messageService.getOrCreateConversation(student.id);
+      
+      // Сохраняем conversationId в localStorage для автоматического выбора в ChatSystem
+      localStorage.setItem('selectedConversationId', conversationId);
+      
+      // Переходим на страницу чата
+      if (onNavigateToChat) {
+        onNavigateToChat();
+      } else {
+        // Если callback не передан, показываем ошибку
+        setError('Не удалось открыть чат. Пожалуйста, обновите страницу.');
+      }
+    } catch (err: any) {
+      console.error('Error opening chat:', err);
+      setError(err.response?.data?.error || 'Не удалось открыть чат');
+    } finally {
+      setOpeningChat(null);
+    }
+  };
 
   if (loading) {
     return (
@@ -240,13 +270,24 @@ export function StudentsList() {
 
                 {/* Actions */}
                 <div className="flex flex-col gap-2">
-                  <Button size="sm" variant="outline" className="gap-2">
-                    <MessageSquare className="size-4" />
-                    Написать
-                  </Button>
-                  <Button size="sm" variant="outline" className="gap-2">
-                    <Calendar className="size-4" />
-                    Расписание
+                  <Button 
+                    size="sm" 
+                    variant="outline" 
+                    className="gap-2"
+                    onClick={() => handleMessageClick(student)}
+                    disabled={openingChat === student.id}
+                  >
+                    {openingChat === student.id ? (
+                      <>
+                        <Loader2 className="size-4 animate-spin" />
+                        Открытие...
+                      </>
+                    ) : (
+                      <>
+                        <MessageSquare className="size-4" />
+                        Написать
+                      </>
+                    )}
                   </Button>
                 </div>
               </div>

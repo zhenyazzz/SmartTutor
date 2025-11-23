@@ -123,5 +123,85 @@ export class LessonController {
       res.status(500).json({ error: error.message || 'Internal server error' });
     }
   }
+
+  async approveLesson(req, res) {
+    try {
+      const lessonId = req.params.lessonId;
+      
+      if (!lessonId) {
+        return res.status(400).json({ error: 'ID урока не указан' });
+      }
+
+      if (!req.user || req.user.role !== 'TUTOR') {
+        return res.status(403).json({ error: 'Доступ разрешен только репетиторам' });
+      }
+
+      // Получаем tutor_id из user_id
+      const tutorResult = await pool.query(
+        `SELECT id FROM tutors WHERE user_id = $1`,
+        [req.user.id]
+      );
+
+      if (tutorResult.rows.length === 0) {
+        return res.status(404).json({ error: 'Репетитор не найден' });
+      }
+
+      const tutorId = tutorResult.rows[0].id;
+      const lesson = await lessonService.approveLesson(lessonId, tutorId);
+      res.json({ message: 'Урок одобрен', lesson });
+    } catch (error) {
+      console.error('Error approving lesson:', error);
+      
+      if (error.message === 'Урок не найден') {
+        return res.status(404).json({ error: error.message });
+      }
+      
+      if (error.message.includes('не принадлежит') || error.message.includes('уже обработан')) {
+        return res.status(400).json({ error: error.message });
+      }
+      
+      res.status(500).json({ error: error.message || 'Internal server error' });
+    }
+  }
+
+  async rejectLesson(req, res) {
+    try {
+      const lessonId = req.params.lessonId;
+      
+      if (!lessonId) {
+        return res.status(400).json({ error: 'ID урока не указан' });
+      }
+
+      if (!req.user || req.user.role !== 'TUTOR') {
+        return res.status(403).json({ error: 'Доступ разрешен только репетиторам' });
+      }
+
+      // Получаем tutor_id из user_id
+      const tutorResult = await pool.query(
+        `SELECT id FROM tutors WHERE user_id = $1`,
+        [req.user.id]
+      );
+
+      if (tutorResult.rows.length === 0) {
+        return res.status(404).json({ error: 'Репетитор не найден' });
+      }
+
+      const tutorId = tutorResult.rows[0].id;
+      const lesson = await lessonService.rejectLesson(lessonId, tutorId);
+      res.json({ message: 'Урок отклонен', lesson });
+    } catch (error) {
+      console.error('Error rejecting lesson:', error);
+      
+      if (error.message === 'Урок не найден') {
+        return res.status(404).json({ error: error.message });
+      }
+      
+      if (error.message.includes('не принадлежит') || error.message.includes('уже обработан')) {
+        return res.status(400).json({ error: error.message });
+      }
+      
+      res.status(500).json({ error: error.message || 'Internal server error' });
+    }
+  }
 }
 

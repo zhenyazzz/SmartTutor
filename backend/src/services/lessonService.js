@@ -4,12 +4,12 @@ export class LessonService {
   async createLesson(data) {
     const { tutorId, studentId, subjectId, dateTime, duration = 60, price } = data;
 
-    // Проверяем, не занят ли слот
+    // Проверяем, не занят ли слот (игнорируем отмененные и отклоненные уроки)
     const existingLesson = await pool.query(
       `SELECT id FROM lessons 
        WHERE tutor_id = $1 
          AND date_time = $2 
-         AND status != 'CANCELLED'`,
+         AND status NOT IN ('CANCELLED', 'REJECTED')`,
       [tutorId, dateTime]
     );
 
@@ -17,10 +17,10 @@ export class LessonService {
       throw new Error('Это время уже занято');
     }
 
-    // Создаем урок
+    // Создаем урок со статусом PENDING (ожидает одобрения репетитора)
     const result = await pool.query(
       `INSERT INTO lessons (tutor_id, student_id, subject_id, date_time, duration, price, status)
-       VALUES ($1, $2, $3, $4, $5, $6, 'PLANNED')
+       VALUES ($1, $2, $3, $4, $5, $6, 'PENDING')
        RETURNING id, tutor_id, student_id, subject_id, date_time, duration, price, status`,
       [tutorId, studentId, subjectId, dateTime, duration, price]
     );
@@ -117,6 +117,100 @@ export class LessonService {
     );
 
     return result.rows[0];
+  }
+
+  // Одобрить урок (изменить статус с PENDING на APPROVED)
+  async approveLesson(lessonId, tutorId) {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      // Проверяем, существует ли урок и принадлежит ли он репетитору
+      const lessonResult = await client.query(
+        `SELECT id, status, tutor_id FROM lessons WHERE id = $1`,
+        [lessonId]
+      );
+
+      if (lessonResult.rows.length === 0) {
+        throw new Error('Урок не найден');
+      }
+
+      const lesson = lessonResult.rows[0];
+
+      // Проверяем, что урок принадлежит репетитору
+      if (lesson.tutor_id.toString() !== tutorId.toString()) {
+        throw new Error('Урок не принадлежит этому репетитору');
+      }
+
+      // Проверяем, что урок в статусе PENDING
+      if (lesson.status !== 'PENDING') {
+        throw new Error(`Урок уже обработан. Текущий статус: ${lesson.status}`);
+      }
+
+      // Обновляем статус на APPROVED
+      const result = await client.query(
+        `UPDATE lessons 
+         SET status = 'APPROVED' 
+         WHERE id = $1 
+         RETURNING id, tutor_id, student_id, subject_id, date_time, duration, price, status`,
+        [lessonId]
+      );
+
+      await client.query('COMMIT');
+      return result.rows[0];
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  // Отклонить урок (изменить статус с PENDING на REJECTED)
+  async rejectLesson(lessonId, tutorId) {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      // Проверяем, существует ли урок и принадлежит ли он репетитору
+      const lessonResult = await client.query(
+        `SELECT id, status, tutor_id FROM lessons WHERE id = $1`,
+        [lessonId]
+      );
+
+      if (lessonResult.rows.length === 0) {
+        throw new Error('Урок не найден');
+      }
+
+      const lesson = lessonResult.rows[0];
+
+      // Проверяем, что урок принадлежит репетитору
+      if (lesson.tutor_id.toString() !== tutorId.toString()) {
+        throw new Error('Урок не принадлежит этому репетитору');
+      }
+
+      // Проверяем, что урок в статусе PENDING
+      if (lesson.status !== 'PENDING') {
+        throw new Error(`Урок уже обработан. Текущий статус: ${lesson.status}`);
+      }
+
+      // Обновляем статус на REJECTED
+      const result = await client.query(
+        `UPDATE lessons 
+         SET status = 'REJECTED' 
+         WHERE id = $1 
+         RETURNING id, tutor_id, student_id, subject_id, date_time, duration, price, status`,
+        [lessonId]
+      );
+
+      await client.query('COMMIT');
+      return result.rows[0];
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 }
 
