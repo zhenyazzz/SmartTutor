@@ -37,7 +37,7 @@ export function AdminAnalytics() {
           adminService.getRevenueStats(timePeriod),
           adminService.getSubjectPopularity(),
           adminService.getCityDistribution(),
-          adminService.getTopTutors(10)
+          adminService.getTopTutors(10, timePeriod)
         ]);
 
         setPlatformStats(stats);

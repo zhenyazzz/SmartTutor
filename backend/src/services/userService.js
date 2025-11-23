@@ -97,10 +97,10 @@ export class UserService {
         u.is_active,
         t.phone,
         t.avatar_url,
-        COUNT(DISTINCT CASE WHEN u.role = 'TUTOR' AND l_tutor.status = 'COMPLETED' THEN l_tutor.id END) as tutor_lessons,
-        COUNT(DISTINCT CASE WHEN u.role = 'TUTOR' AND l_tutor.status IN ('COMPLETED', 'PLANNED') THEN l_tutor.student_id END) as students_count,
-        COALESCE(SUM(CASE WHEN u.role = 'TUTOR' AND l_tutor.status = 'COMPLETED' THEN l_tutor.price END), 0) as earnings,
-        COUNT(DISTINCT CASE WHEN u.role = 'STUDENT' AND l_student.status = 'COMPLETED' THEN l_student.id END) as student_lessons
+        COUNT(DISTINCT CASE WHEN u.role = 'TUTOR' AND l_tutor.status = 'APPROVED' AND l_tutor.date_time < NOW() THEN l_tutor.id END) as tutor_lessons,
+        COUNT(DISTINCT CASE WHEN u.role = 'TUTOR' AND l_tutor.status = 'APPROVED' THEN l_tutor.student_id END) as students_count,
+        COALESCE(SUM(CASE WHEN u.role = 'TUTOR' AND l_tutor.status = 'APPROVED' AND l_tutor.date_time < NOW() THEN l_tutor.price END), 0) as earnings,
+        COUNT(DISTINCT CASE WHEN u.role = 'STUDENT' AND l_student.status = 'APPROVED' AND l_student.date_time < NOW() THEN l_student.id END) as student_lessons
        FROM users u
        LEFT JOIN tutors t ON u.id = t.user_id
        LEFT JOIN lessons l_tutor ON u.role = 'TUTOR' AND l_tutor.tutor_id = t.id
@@ -190,9 +190,9 @@ export class UserService {
       // Получаем статистику
       const statsResult = await pool.query(
         `SELECT 
-          COUNT(DISTINCT l.id) FILTER (WHERE l.status = 'COMPLETED') as lessons_completed,
-          COUNT(DISTINCT l.student_id) FILTER (WHERE l.status IN ('COMPLETED', 'PLANNED')) as students_count,
-          COALESCE(SUM(l.price) FILTER (WHERE l.status = 'COMPLETED'), 0) as earnings
+          COUNT(DISTINCT l.id) FILTER (WHERE l.status = 'APPROVED' AND l.date_time < NOW()) as lessons_completed,
+          COUNT(DISTINCT l.student_id) FILTER (WHERE l.status = 'APPROVED') as students_count,
+          COALESCE(SUM(l.price) FILTER (WHERE l.status = 'APPROVED' AND l.date_time < NOW()), 0) as earnings
          FROM lessons l
          WHERE l.tutor_id = (SELECT id FROM tutors WHERE user_id = $1)`,
         [userId]
@@ -210,7 +210,7 @@ export class UserService {
       const statsResult = await pool.query(
         `SELECT COUNT(*) as lessons_completed
          FROM lessons
-         WHERE student_id = $1 AND status = 'COMPLETED'`,
+         WHERE student_id = $1 AND status = 'APPROVED' AND date_time < NOW()`,
         [userId]
       );
 

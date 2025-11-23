@@ -70,7 +70,9 @@ export class AdminController {
   async getTopTutors(req, res) {
     try {
       const limit = parseInt(req.query.limit) || 10;
-      const tutors = await adminService.getTopTutors(limit);
+      const period = req.query.period || 'year';
+      console.log(`[AdminController] getTopTutors called with limit: ${limit}, period: ${period}`);
+      const tutors = await adminService.getTopTutors(limit, period);
       res.json(tutors);
     } catch (error) {
       console.error('Error getting top tutors:', error);

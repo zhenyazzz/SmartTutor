@@ -54,11 +54,11 @@ export class AdminService {
     );
     const studentsPeriod = parseInt(studentsPeriodResult.rows[0].total) || 0;
 
-    // Занятия за текущий месяц
+    // Занятия за текущий месяц (завершенные - одобренные и в прошлом)
     const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
     const lessonsMonthResult = await pool.query(
       `SELECT COUNT(*) as total FROM lessons
-       WHERE status = 'COMPLETED' AND date_time >= $1`,
+       WHERE status = 'APPROVED' AND date_time >= $1 AND date_time < NOW()`,
       [currentMonthStart]
     );
     const lessonsThisMonth = parseInt(lessonsMonthResult.rows[0].total) || 0;
@@ -68,7 +68,7 @@ export class AdminService {
     const previousMonthEnd = new Date(now.getFullYear(), now.getMonth(), 1);
     const lessonsPrevMonthResult = await pool.query(
       `SELECT COUNT(*) as total FROM lessons
-       WHERE status = 'COMPLETED' AND date_time >= $1 AND date_time < $2`,
+       WHERE status = 'APPROVED' AND date_time >= $1 AND date_time < $2`,
       [previousMonthStart, previousMonthEnd]
     );
     const lessonsPrevMonth = parseInt(lessonsPrevMonthResult.rows[0].total) || 0;
@@ -76,7 +76,7 @@ export class AdminService {
     // Комиссия за текущий месяц (10% от выручки)
     const commissionMonthResult = await pool.query(
       `SELECT COALESCE(SUM(price * 0.1), 0) as commission FROM lessons
-       WHERE status = 'COMPLETED' AND date_time >= $1`,
+       WHERE status = 'APPROVED' AND date_time >= $1 AND date_time < NOW()`,
       [currentMonthStart]
     );
     const commissionThisMonth = parseFloat(commissionMonthResult.rows[0].commission) || 0;
@@ -84,7 +84,7 @@ export class AdminService {
     // Комиссия за предыдущий месяц
     const commissionPrevMonthResult = await pool.query(
       `SELECT COALESCE(SUM(price * 0.1), 0) as commission FROM lessons
-       WHERE status = 'COMPLETED' AND date_time >= $1 AND date_time < $2`,
+       WHERE status = 'APPROVED' AND date_time >= $1 AND date_time < $2`,
       [previousMonthStart, previousMonthEnd]
     );
     const commissionPrevMonth = parseFloat(commissionPrevMonthResult.rows[0].commission) || 0;
@@ -155,13 +155,13 @@ export class AdminService {
       [startDate]
     );
 
-    // Данные по занятиям по месяцам
+    // Данные по занятиям по месяцам (завершенные - одобренные и в прошлом)
     const lessonsMonthlyResult = await pool.query(
       `SELECT 
         DATE_TRUNC('month', date_time) as month,
         COUNT(*) as count
        FROM lessons
-       WHERE status = 'COMPLETED' AND date_time >= $1
+       WHERE status = 'APPROVED' AND date_time >= $1 AND date_time < NOW()
        GROUP BY DATE_TRUNC('month', date_time)
        ORDER BY month`,
       [startDate]
@@ -274,7 +274,7 @@ export class AdminService {
         COALESCE(SUM(price), 0) as revenue,
         COALESCE(SUM(price * 0.1), 0) as commission
        FROM lessons
-       WHERE status = 'COMPLETED' AND date_time >= $1
+       WHERE status = 'APPROVED' AND date_time >= $1 AND date_time < NOW()
        GROUP BY DATE_TRUNC('month', date_time)
        ORDER BY month`,
       [startDate]
@@ -318,7 +318,7 @@ export class AdminService {
        FROM subjects s
        LEFT JOIN tutor_subjects ts ON s.id = ts.subject_id
        LEFT JOIN tutors t ON ts.tutor_id = t.id
-       LEFT JOIN lessons l ON l.subject_id = s.id AND l.status = 'COMPLETED'
+       LEFT JOIN lessons l ON l.subject_id = s.id AND l.status = 'APPROVED' AND l.date_time < NOW()
        LEFT JOIN reviews r ON r.tutor_id = t.id
        GROUP BY s.id, s.name
        HAVING COUNT(DISTINCT t.id) > 0
@@ -357,7 +357,32 @@ export class AdminService {
   }
 
   // Получить топ репетиторов
-  async getTopTutors(limit = 10) {
+  async getTopTutors(limit = 10, period = 'year') {
+    // Определяем период
+    const now = new Date();
+    let startDate = new Date();
+    
+    switch (period) {
+      case 'week':
+        startDate.setDate(now.getDate() - 7);
+        break;
+      case 'month':
+        startDate.setMonth(now.getMonth() - 1);
+        break;
+      case 'quarter':
+        startDate.setMonth(now.getMonth() - 3);
+        break;
+      case 'year':
+      default:
+        startDate.setFullYear(now.getFullYear() - 1);
+        break;
+    }
+    
+    // Устанавливаем время на начало дня для корректного сравнения
+    startDate.setHours(0, 0, 0, 0);
+    
+    console.log(`[AdminService] getTopTutors called with period: ${period}, startDate: ${startDate.toISOString()}`);
+    
     const result = await pool.query(
       `SELECT 
         t.id,
@@ -365,18 +390,22 @@ export class AdminService {
         s.name as subject,
         t.rating,
         COUNT(DISTINCT l.student_id) as students,
-        COUNT(*) FILTER (WHERE l.status = 'COMPLETED') as lessons,
-        COALESCE(SUM(l.price) FILTER (WHERE l.status = 'COMPLETED'), 0) as earnings
+        COUNT(*) as lessons,
+        COALESCE(SUM(l.price), 0) as earnings
        FROM tutors t
        INNER JOIN users u ON t.user_id = u.id
        LEFT JOIN tutor_subjects ts ON t.id = ts.tutor_id
        LEFT JOIN subjects s ON ts.subject_id = s.id
-       LEFT JOIN lessons l ON l.tutor_id = t.id
+       LEFT JOIN lessons l ON l.tutor_id = t.id 
+         AND l.date_time >= $2 
+         AND l.date_time < NOW() 
+         AND l.status = 'APPROVED'
        WHERE u.is_active = true
        GROUP BY t.id, u.full_name, s.name, t.rating
-       ORDER BY t.rating DESC, lessons DESC, students DESC
+       HAVING COUNT(*) > 0
+       ORDER BY earnings DESC, lessons DESC, students DESC
        LIMIT $1`,
-      [limit]
+      [limit, startDate]
     );
 
     return result.rows.map(row => ({
@@ -411,10 +440,10 @@ export class AdminService {
         break;
     }
 
-    // Общая выручка за период
+    // Общая выручка за период (только завершенные уроки - одобренные и в прошлом)
     const totalRevenueResult = await pool.query(
       `SELECT COALESCE(SUM(price), 0) as revenue FROM lessons
-       WHERE status = 'COMPLETED' AND date_time >= $1`,
+       WHERE status = 'APPROVED' AND date_time >= $1 AND date_time < NOW()`,
       [startDate]
     );
     const totalRevenue = parseFloat(totalRevenueResult.rows[0].revenue) || 0;
@@ -425,7 +454,7 @@ export class AdminService {
     // Средний чек
     const avgCheckResult = await pool.query(
       `SELECT COALESCE(AVG(price), 0) as avg_check FROM lessons
-       WHERE status = 'COMPLETED' AND date_time >= $1`,
+       WHERE status = 'APPROVED' AND date_time >= $1 AND date_time < NOW()`,
       [startDate]
     );
     const avgCheck = parseFloat(avgCheckResult.rows[0].avg_check) || 0;
@@ -452,7 +481,7 @@ export class AdminService {
 
     const prevRevenueResult = await pool.query(
       `SELECT COALESCE(SUM(price), 0) as revenue FROM lessons
-       WHERE status = 'COMPLETED' AND date_time >= $1 AND date_time < $2`,
+       WHERE status = 'APPROVED' AND date_time >= $1 AND date_time < $2`,
       [previousPeriodStart, previousPeriodEnd]
     );
     const prevRevenue = parseFloat(prevRevenueResult.rows[0].revenue) || 0;

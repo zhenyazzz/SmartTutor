@@ -119,8 +119,15 @@ async function generateAnalyticsData() {
 
           const lessonDate = new Date(year, month - 1, day, hour, minute, 0);
 
-          // Статус: если урок в прошлом - COMPLETED, если в будущем - PLANNED
-          const status = lessonDate < now ? 'COMPLETED' : 'PLANNED';
+          // Статус: если урок в прошлом - APPROVED (завершенные были одобрены), 
+          // если в будущем - случайно APPROVED (80%) или REJECTED (20%)
+          let status;
+          if (lessonDate < now) {
+            status = 'APPROVED'; // Завершенные уроки были одобрены
+          } else {
+            // Будущие уроки: 80% одобрены, 20% отклонены
+            status = Math.random() < 0.8 ? 'APPROVED' : 'REJECTED';
+          }
 
           // Проверяем, нет ли уже урока в это время
           const existing = await pool.query(
@@ -147,11 +154,11 @@ async function generateAnalyticsData() {
     // Генерируем отзывы, распределенные по месяцам для динамики рейтинга
     console.log('\n⭐ Generating reviews distributed across months...');
     
-    // Получаем все завершенные уроки для создания отзывов
+    // Получаем все завершенные уроки для создания отзывов (APPROVED и в прошлом)
     const completedLessonsResult = await pool.query(
       `SELECT l.id, l.tutor_id, l.student_id, l.date_time
        FROM lessons l
-       WHERE l.status = 'COMPLETED'
+       WHERE l.status = 'APPROVED' AND l.date_time < NOW()
        ORDER BY l.date_time DESC`
     );
 
@@ -248,9 +255,10 @@ async function generateAnalyticsData() {
       `SELECT 
         COUNT(DISTINCT tutor_id) as tutors,
         COUNT(DISTINCT student_id) as students,
-        COUNT(*) FILTER (WHERE status = 'COMPLETED') as completed_lessons,
-        COUNT(*) FILTER (WHERE status = 'PLANNED') as planned_lessons,
-        SUM(price) FILTER (WHERE status = 'COMPLETED') as total_earnings
+        COUNT(*) FILTER (WHERE status = 'APPROVED' AND date_time < NOW()) as completed_lessons,
+        COUNT(*) FILTER (WHERE status = 'APPROVED' AND date_time >= NOW()) as approved_lessons,
+        COUNT(*) FILTER (WHERE status = 'REJECTED') as rejected_lessons,
+        SUM(price) FILTER (WHERE status = 'APPROVED' AND date_time < NOW()) as total_earnings
        FROM lessons`
     );
 
@@ -259,7 +267,8 @@ async function generateAnalyticsData() {
     console.log(`   Tutors with lessons: ${stats.tutors}`);
     console.log(`   Students with lessons: ${stats.students}`);
     console.log(`   Completed lessons: ${stats.completed_lessons}`);
-    console.log(`   Planned lessons: ${stats.planned_lessons}`);
+    console.log(`   Approved future lessons: ${stats.approved_lessons}`);
+    console.log(`   Rejected lessons: ${stats.rejected_lessons}`);
     console.log(`   Total earnings: ${parseFloat(stats.total_earnings || 0).toLocaleString('ru-RU')} ₽`);
 
     process.exit(0);

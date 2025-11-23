@@ -1,12 +1,12 @@
-import React, { useState, useEffect } from 'react';
-import { MessageSquare, Search, Send, Paperclip, MoreVertical, X, Phone, Video, Info, Loader2 } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { MessageSquare, Search, Send, X, Loader2 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Avatar, AvatarImage, AvatarFallback } from '../ui/avatar';
-import { Card } from '../ui/card';
 import { Badge } from '../ui/badge';
 import { ScrollArea } from '../ui/scroll-area';
 import { messageService, ChatUser, Message } from '../../services/messageService';
+import { authService } from '../../services/authService';
 
 export function ChatSystem() {
   const [chats, setChats] = useState<ChatUser[]>([]);
@@ -18,6 +18,18 @@ export function ChatSystem() {
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Получаем ID текущего пользователя
+  useEffect(() => {
+    const user = authService.getCurrentUser();
+    if (user) {
+      setCurrentUserId(user.id.toString());
+    }
+  }, []);
 
   // Загрузка бесед
   useEffect(() => {
@@ -33,16 +45,59 @@ export function ChatSystem() {
 
   // Загрузка сообщений при выборе беседы
   useEffect(() => {
-    if (selectedChat) {
+    if (selectedChat && currentUserId) {
       loadMessages(selectedChat.conversationId);
+      // Отмечаем сообщения как прочитанные
+      messageService.markAsRead(selectedChat.conversationId).catch(console.error);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedChat?.conversationId]);
+  }, [selectedChat?.conversationId, currentUserId]);
 
-  const loadConversations = async () => {
+  // Автоматическая прокрутка к последнему сообщению
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages]);
+
+  // Polling для обновления сообщений
+  useEffect(() => {
+    if (selectedChat && currentUserId) {
+      // Очищаем предыдущий интервал
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+      }
+
+      // Устанавливаем новый интервал для обновления сообщений каждые 3 секунды
+      pollingIntervalRef.current = setInterval(() => {
+        loadMessages(selectedChat.conversationId, true); // true = silent update
+      }, 3000);
+
+      return () => {
+        if (pollingIntervalRef.current) {
+          clearInterval(pollingIntervalRef.current);
+        }
+      };
+    }
+  }, [selectedChat?.conversationId, currentUserId]);
+
+  // Обновление списка бесед каждые 5 секунд
+  useEffect(() => {
+    if (!currentUserId) return;
+    
+    const interval = setInterval(() => {
+      if (!loading) {
+        loadConversations(true); // true = silent update
+      }
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, [loading, currentUserId]);
+
+  const loadConversations = async (silent = false) => {
     try {
-      setLoading(true);
-      setError(null);
+      if (!silent) {
+        setLoading(true);
+        setError(null);
+      }
       const conversations = await messageService.getConversations();
       setChats(conversations);
       
@@ -58,37 +113,62 @@ export function ChatSystem() {
           // Если сохраненная беседа не найдена, выбираем первую
           setSelectedChat(conversations[0]);
         }
-      } else if (conversations.length > 0 && !selectedChat) {
+      } else if (conversations.length > 0 && !selectedChat && !silent) {
         setSelectedChat(conversations[0]);
       }
     } catch (err: any) {
-      console.error('Error loading conversations:', err);
-      const errorMessage = err.response?.data?.error || err.message || 'Не удалось загрузить беседы';
-      setError(errorMessage);
-      
-      // Если ошибка авторизации, показываем специальное сообщение
-      if (err.response?.status === 401) {
-        setError('Ошибка авторизации. Пожалуйста, войдите заново.');
-        console.warn('Authentication error in chat. User may need to re-login.');
-        // Не делаем автоматический редирект - пусть пользователь сам решит
+      if (!silent) {
+        console.error('Error loading conversations:', err);
+        const errorMessage = err.response?.data?.error || err.message || 'Не удалось загрузить беседы';
+        setError(errorMessage);
+        
+        // Если ошибка авторизации, показываем специальное сообщение
+        if (err.response?.status === 401) {
+          setError('Ошибка авторизации. Пожалуйста, войдите заново.');
+          console.warn('Authentication error in chat. User may need to re-login.');
+        }
       }
     } finally {
-      setLoading(false);
+      if (!silent) {
+        setLoading(false);
+      }
     }
   };
 
-  const loadMessages = async (conversationId: string) => {
+  const loadMessages = async (conversationId: string, silent = false) => {
     try {
-      setLoadingMessages(true);
-      setError(null);
+      if (!silent) {
+        setLoadingMessages(true);
+        setError(null);
+      }
       const messagesData = await messageService.getMessages(conversationId);
-      setMessages(messagesData);
+      
+      // Нормализуем senderId для сравнения с текущим пользователем
+      const normalizedMessages = messagesData.map(msg => ({
+        ...msg,
+        senderId: msg.senderId === 'me' || (currentUserId && msg.senderId === currentUserId) ? 'me' : msg.senderId
+      }));
+      
+      setMessages(normalizedMessages);
+      
+      if (!silent) {
+        // Отмечаем сообщения как прочитанные
+        messageService.markAsRead(conversationId).catch(console.error);
+      }
     } catch (err: any) {
-      console.error('Error loading messages:', err);
-      setError(err.response?.data?.error || 'Не удалось загрузить сообщения');
+      if (!silent) {
+        console.error('Error loading messages:', err);
+        setError(err.response?.data?.error || 'Не удалось загрузить сообщения');
+      }
     } finally {
-      setLoadingMessages(false);
+      if (!silent) {
+        setLoadingMessages(false);
+      }
     }
+  };
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
   const handleSendMessage = async () => {
@@ -103,12 +183,21 @@ export function ChatSystem() {
         newMessage
       );
 
+      // Нормализуем senderId для отправленного сообщения
+      const normalizedMessage = {
+        ...sentMessage,
+        senderId: 'me'
+      };
+
       // Добавляем отправленное сообщение в список
-      setMessages([...messages, sentMessage]);
+      setMessages([...messages, normalizedMessage]);
       setNewMessage('');
 
       // Обновляем список бесед, чтобы обновить последнее сообщение
-      await loadConversations();
+      await loadConversations(true);
+      
+      // Прокручиваем к новому сообщению
+      setTimeout(() => scrollToBottom(), 100);
     } catch (err: any) {
       console.error('Error sending message:', err);
       setError(err.response?.data?.error || 'Не удалось отправить сообщение');
@@ -120,6 +209,26 @@ export function ChatSystem() {
   const filteredChats = chats.filter(chat =>
     chat.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
+
+  // Форматирование даты для разделителя сообщений
+  const formatMessageDate = (dateString: string): string => {
+    const date = new Date(dateString);
+    const today = new Date();
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+
+    if (date.toDateString() === today.toDateString()) {
+      return 'Сегодня';
+    } else if (date.toDateString() === yesterday.toDateString()) {
+      return 'Вчера';
+    } else {
+      return date.toLocaleDateString('ru-RU', { 
+        day: 'numeric', 
+        month: 'long',
+        year: date.getFullYear() !== today.getFullYear() ? 'numeric' : undefined
+      });
+    }
+  };
 
   return (
     <div className="h-screen flex">
@@ -206,22 +315,11 @@ export function ChatSystem() {
                 )}
               </div>
               <div>
-                <h3 className="text-gray-900">{selectedChat.name}</h3>
+                <h3 className="text-gray-900 font-semibold">{selectedChat.name}</h3>
                 <p className="text-sm text-gray-600">
-                  {selectedChat.online ? 'В сети' : 'Не в сети'}
+                  {selectedChat.role === 'tutor' ? 'Репетитор' : 'Студент'}
                 </p>
               </div>
-            </div>
-            <div className="flex gap-2">
-              <Button variant="ghost" size="sm">
-                <Phone className="size-4" />
-              </Button>
-              <Button variant="ghost" size="sm">
-                <Video className="size-4" />
-              </Button>
-              <Button variant="ghost" size="sm">
-                <Info className="size-4" />
-              </Button>
             </div>
           </div>
 
@@ -241,7 +339,7 @@ export function ChatSystem() {
           )}
 
           {/* Messages */}
-          <ScrollArea className="flex-1 p-4">
+          <ScrollArea className="flex-1 p-4" ref={messagesContainerRef}>
             {loadingMessages ? (
               <div className="flex items-center justify-center h-32">
                 <Loader2 className="size-6 animate-spin text-gray-400" />
@@ -251,33 +349,54 @@ export function ChatSystem() {
                 <div className="text-center">
                   <MessageSquare className="size-12 mx-auto mb-4 text-gray-300" />
                   <p className="text-gray-600">Нет сообщений</p>
+                  <p className="text-sm text-gray-500 mt-2">Начните общение, отправив первое сообщение</p>
                 </div>
               </div>
             ) : (
               <div className="space-y-4">
-                {messages.map(message => (
-                <div
-                  key={message.id}
-                  className={`flex ${message.senderId === 'me' ? 'justify-end' : 'justify-start'}`}
-                >
-                  <div
-                    className={`max-w-md px-4 py-2 rounded-lg ${
-                      message.senderId === 'me'
-                        ? 'bg-indigo-600 text-white'
-                        : 'bg-white text-gray-900'
-                    }`}
-                  >
-                    <p className="text-sm">{message.text}</p>
-                    <p
-                      className={`text-xs mt-1 ${
-                        message.senderId === 'me' ? 'text-indigo-200' : 'text-gray-500'
-                      }`}
-                    >
-                      {message.time}
-                    </p>
-                  </div>
-                </div>
-                ))}
+                {messages.map((message, index) => {
+                  const isMe = message.senderId === 'me' || (currentUserId && message.senderId === currentUserId);
+                  const showDateSeparator = index === 0 || 
+                    new Date(message.createdAt).toDateString() !== new Date(messages[index - 1].createdAt).toDateString();
+                  
+                  return (
+                    <React.Fragment key={message.id}>
+                      {showDateSeparator && (
+                        <div className="flex justify-center my-4">
+                          <span className="text-xs text-gray-500 bg-gray-100 px-3 py-1 rounded-full">
+                            {formatMessageDate(message.createdAt)}
+                          </span>
+                        </div>
+                      )}
+                      <div
+                        className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}
+                      >
+                        <div
+                          className={`max-w-md px-4 py-2 rounded-lg shadow-sm ${
+                            isMe
+                              ? 'bg-indigo-600 text-white'
+                              : 'bg-white text-gray-900 border border-gray-200'
+                          }`}
+                        >
+                          <p className="text-sm whitespace-pre-wrap break-words">{message.text}</p>
+                          <div className="flex items-center justify-end gap-1 mt-1">
+                            <p
+                              className={`text-xs ${
+                                isMe ? 'text-indigo-200' : 'text-gray-500'
+                              }`}
+                            >
+                              {message.time}
+                            </p>
+                            {isMe && message.read && (
+                              <span className="text-xs text-indigo-200">✓✓</span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </React.Fragment>
+                  );
+                })}
+                <div ref={messagesEndRef} />
               </div>
             )}
           </ScrollArea>
@@ -285,18 +404,24 @@ export function ChatSystem() {
           {/* Message Input */}
           <div className="p-4 border-t bg-white">
             <div className="flex gap-2">
-              <Button variant="ghost" size="sm">
-                <Paperclip className="size-4" />
-              </Button>
               <Input
                 placeholder="Введите сообщение..."
                 value={newMessage}
                 onChange={(e) => setNewMessage(e.target.value)}
-                onKeyPress={(e) => e.key === 'Enter' && !sending && handleSendMessage()}
+                onKeyPress={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey && !sending) {
+                    e.preventDefault();
+                    handleSendMessage();
+                  }
+                }}
                 className="flex-1"
                 disabled={sending}
               />
-              <Button onClick={handleSendMessage} disabled={sending || !newMessage.trim()}>
+              <Button 
+                onClick={handleSendMessage} 
+                disabled={sending || !newMessage.trim()}
+                className="px-4"
+              >
                 {sending ? (
                   <Loader2 className="size-4 animate-spin" />
                 ) : (

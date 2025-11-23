@@ -373,9 +373,9 @@ export class TutorService {
         u.full_name as student_name,
         u.email as student_email,
         u.created_at as student_joined,
-        COUNT(DISTINCT l.id) FILTER (WHERE l.status = 'COMPLETED') as lessons_completed,
-        COUNT(DISTINCT l.id) FILTER (WHERE l.status = 'PLANNED') as lessons_planned,
-        MIN(l.date_time) FILTER (WHERE l.status = 'PLANNED' AND l.date_time >= CURRENT_TIMESTAMP) as next_lesson,
+        COUNT(DISTINCT l.id) FILTER (WHERE l.status = 'APPROVED' AND l.date_time < NOW()) as lessons_completed,
+        COUNT(DISTINCT l.id) FILTER (WHERE l.status = 'APPROVED' AND l.date_time >= NOW()) as lessons_planned,
+        MIN(l.date_time) FILTER (WHERE l.status = 'APPROVED' AND l.date_time >= CURRENT_TIMESTAMP) as next_lesson,
         ARRAY_AGG(DISTINCT s.name) FILTER (WHERE s.name IS NOT NULL) as subjects,
         MAX(l.date_time) as last_lesson_date
       FROM lessons l
@@ -464,32 +464,42 @@ export class TutorService {
         startDate.setFullYear(now.getFullYear() - 1);
         break;
     }
+    
+    // Устанавливаем время на начало дня для корректного сравнения
+    startDate.setHours(0, 0, 0, 0);
+    
+    // Логируем для отладки
+    console.log(`[TutorStats] Period: ${period}, StartDate: ${startDate.toISOString()}, Now: ${now.toISOString()}`);
 
-    // Основные метрики
+    // Основные метрики (WHERE уже фильтрует по дате, поэтому в FILTER только статус)
     const metricsResult = await pool.query(
       `SELECT 
-        COUNT(DISTINCT l.student_id) FILTER (WHERE l.status = 'COMPLETED' OR l.status = 'PLANNED') as total_students,
-        COUNT(*) FILTER (WHERE l.status = 'COMPLETED' AND l.date_time >= $2) as completed_lessons_period,
-        COUNT(*) FILTER (WHERE l.status = 'COMPLETED' AND l.date_time >= DATE_TRUNC('month', CURRENT_DATE)) as completed_lessons_month,
-        SUM(l.price) FILTER (WHERE l.status = 'COMPLETED' AND l.date_time >= DATE_TRUNC('month', CURRENT_DATE)) as earnings_month,
+        COUNT(DISTINCT l.student_id) FILTER (WHERE l.status = 'APPROVED') as total_students,
+        COUNT(*) FILTER (WHERE l.status = 'APPROVED') as completed_lessons_period,
+        SUM(l.price) FILTER (WHERE l.status = 'APPROVED') as earnings_period,
         AVG(r.rating) as avg_rating
       FROM lessons l
-      LEFT JOIN reviews r ON r.tutor_id = l.tutor_id
-      WHERE l.tutor_id = $1 AND l.date_time >= $2`,
+      LEFT JOIN reviews r ON r.tutor_id = l.tutor_id AND r.created_at >= $2
+      WHERE l.tutor_id = $1 AND l.date_time >= $2 AND l.date_time < NOW() AND l.status = 'APPROVED'`,
       [tutorId, startDate]
     );
 
     const metrics = metricsResult.rows[0];
+    console.log(`[TutorStats] Metrics query result:`, {
+      total_students: metrics.total_students,
+      completed_lessons_period: metrics.completed_lessons_period,
+      earnings_period: metrics.earnings_period
+    });
 
-    // Данные по месяцам для графиков
+    // Данные по месяцам для графиков (только в пределах периода)
     const monthlyDataResult = await pool.query(
       `SELECT 
         DATE_TRUNC('month', l.date_time) as month,
-        COUNT(DISTINCT l.student_id) FILTER (WHERE l.status IN ('COMPLETED', 'PLANNED')) as students,
-        COUNT(*) FILTER (WHERE l.status = 'COMPLETED') as lessons,
-        SUM(l.price) FILTER (WHERE l.status = 'COMPLETED') as earnings
+        COUNT(DISTINCT l.student_id) FILTER (WHERE l.status = 'APPROVED') as students,
+        COUNT(*) FILTER (WHERE l.status = 'APPROVED' AND l.date_time < NOW()) as lessons,
+        SUM(l.price) FILTER (WHERE l.status = 'APPROVED' AND l.date_time < NOW()) as earnings
       FROM lessons l
-      WHERE l.tutor_id = $1 AND l.date_time >= $2
+      WHERE l.tutor_id = $1 AND l.date_time >= $2 AND l.date_time < NOW()
       GROUP BY DATE_TRUNC('month', l.date_time)
       ORDER BY month`,
       [tutorId, startDate]
@@ -507,15 +517,15 @@ export class TutorService {
       [tutorId, startDate]
     );
 
-    // Распределение по предметам
+    // Распределение по предметам (только завершенные уроки за период)
     const subjectDistributionResult = await pool.query(
       `SELECT 
         s.name,
         COUNT(DISTINCT l.student_id) as students,
-        COUNT(*) FILTER (WHERE l.status = 'COMPLETED') as lessons_count
+        COUNT(*) FILTER (WHERE l.status = 'APPROVED' AND l.date_time < NOW()) as lessons_count
       FROM lessons l
       INNER JOIN subjects s ON l.subject_id = s.id
-      WHERE l.tutor_id = $1 AND l.date_time >= $2
+      WHERE l.tutor_id = $1 AND l.date_time >= $2 AND l.date_time < NOW()
       GROUP BY s.name
       ORDER BY lessons_count DESC`,
       [tutorId, startDate]
@@ -551,35 +561,36 @@ export class TutorService {
       students: parseInt(row.students) || 0
     }));
 
-    // Вычисляем изменения (рост)
-    const previousMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-    const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    // Вычисляем изменения (рост) - сравниваем первую и вторую половину периода
+    const periodDuration = now - startDate;
+    const midPoint = new Date(startDate.getTime() + periodDuration / 2);
     
-    const previousMonthMetrics = await pool.query(
+    const previousPeriodMetrics = await pool.query(
       `SELECT 
         COUNT(DISTINCT l.student_id) as students,
-        COUNT(*) FILTER (WHERE l.status = 'COMPLETED') as lessons,
-        SUM(l.price) FILTER (WHERE l.status = 'COMPLETED') as earnings
+        COUNT(*) FILTER (WHERE l.status = 'APPROVED' AND l.date_time < NOW()) as lessons,
+        SUM(l.price) FILTER (WHERE l.status = 'APPROVED' AND l.date_time < NOW()) as earnings
       FROM lessons l
       WHERE l.tutor_id = $1 
         AND l.date_time >= $2 
         AND l.date_time < $3`,
-      [tutorId, previousMonthStart, currentMonthStart]
+      [tutorId, startDate, midPoint]
     );
 
-    const currentMonthMetrics = await pool.query(
+    const currentPeriodMetrics = await pool.query(
       `SELECT 
         COUNT(DISTINCT l.student_id) as students,
-        COUNT(*) FILTER (WHERE l.status = 'COMPLETED') as lessons,
-        SUM(l.price) FILTER (WHERE l.status = 'COMPLETED') as earnings
+        COUNT(*) FILTER (WHERE l.status = 'APPROVED' AND l.date_time < NOW()) as lessons,
+        SUM(l.price) FILTER (WHERE l.status = 'APPROVED' AND l.date_time < NOW()) as earnings
       FROM lessons l
       WHERE l.tutor_id = $1 
-        AND l.date_time >= $2`,
-      [tutorId, currentMonthStart]
+        AND l.date_time >= $2 
+        AND l.date_time < NOW()`,
+      [tutorId, midPoint]
     );
 
-    const prev = previousMonthMetrics.rows[0];
-    const curr = currentMonthMetrics.rows[0];
+    const prev = previousPeriodMetrics.rows[0];
+    const curr = currentPeriodMetrics.rows[0];
 
     const calculateGrowth = (current, previous) => {
       if (!previous || previous == 0) return current > 0 ? 100 : 0;
@@ -588,8 +599,8 @@ export class TutorService {
 
     return {
       totalStudents: parseInt(metrics.total_students) || 0,
-      lessonsThisMonth: parseInt(metrics.completed_lessons_month) || 0,
-      earningsThisMonth: parseFloat(metrics.earnings_month) || 0,
+      lessonsThisMonth: parseInt(metrics.completed_lessons_period) || 0, // За период, но сохраняем название для совместимости
+      earningsThisMonth: parseFloat(metrics.earnings_period) || 0, // За период, но сохраняем название для совместимости
       avgRating: parseFloat(metrics.avg_rating) || 0,
       growth: {
         students: calculateGrowth(parseInt(curr?.students || 0), parseInt(prev?.students || 0)),

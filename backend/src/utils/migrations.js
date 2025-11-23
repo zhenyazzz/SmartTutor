@@ -56,6 +56,17 @@ const checkColumnExists = async (table, column) => {
   return result.rows.length > 0;
 };
 
+// Проверка constraint для статусов уроков
+const checkLessonsStatusConstraint = async () => {
+  const result = await pool.query(`
+    SELECT constraint_name, check_clause
+    FROM information_schema.check_constraints
+    WHERE constraint_name = 'lessons_status_check'
+    AND check_clause LIKE '%PENDING%'
+  `);
+  return result.rows.length > 0;
+};
+
 // Запуск миграции из SQL файла
 const runMigration = async (version, sqlFile) => {
   try {
@@ -94,7 +105,8 @@ export const initializeMigrations = async () => {
     const migrations = [
       { version: 'V1__Initial_schema', file: 'V1__Initial_schema.sql', checkTable: 'users' },
       { version: 'V2__Add_review_moderation', file: 'V2__Add_review_moderation.sql', checkColumn: { table: 'reviews', column: 'status' } },
-      { version: 'V3__Add_messages', file: 'V3__Add_messages.sql', checkTable: 'conversations' }
+      { version: 'V3__Add_messages', file: 'V3__Add_messages.sql', checkTable: 'conversations' },
+      { version: 'V4__Add_lesson_approval_statuses', file: 'V4__Add_lesson_approval_statuses.sql', checkConstraint: 'lessons_status_check' }
       // Используйте npm run seed для создания тестовых пользователей
     ];
     
@@ -103,9 +115,21 @@ export const initializeMigrations = async () => {
       
       if (!isApplied) {
         // Для seed данных просто применяем миграцию
-        if (!migration.checkTable && !migration.checkColumn) {
+        if (!migration.checkTable && !migration.checkColumn && !migration.checkConstraint) {
           console.log(`Applying seed migration ${migration.version}...`);
           await runMigration(migration.version, migration.file);
+        } else if (migration.checkConstraint) {
+          // Проверяем, существует ли constraint с нужными значениями
+          const constraintExists = await checkLessonsStatusConstraint();
+          
+          if (!constraintExists) {
+            console.log(`Applying migration ${migration.version}...`);
+            await runMigration(migration.version, migration.file);
+          } else {
+            // Constraint существует, но миграция не отмечена - отмечаем её
+            console.log(`Constraint ${migration.checkConstraint} exists, marking migration ${migration.version} as applied...`);
+            await markMigrationApplied(migration.version);
+          }
         } else if (migration.checkColumn) {
           // Проверяем, существует ли колонка
           const columnExists = await checkColumnExists(migration.checkColumn.table, migration.checkColumn.column);

@@ -63,7 +63,9 @@ export class TutorController {
   async getTutorStats(req, res) {
     try {
       const period = req.query.period || 'year';
+      console.log(`[TutorController] getTutorStats called with tutorId: ${req.params.tutorId}, period: ${period}`);
       const stats = await tutorService.getTutorStats(req.params.tutorId, period);
+      console.log(`[TutorController] Stats returned: lessons=${stats.lessonsThisMonth}, earnings=${stats.earningsThisMonth}`);
       res.json(stats);
     } catch (error) {
       console.error('Error getting tutor stats:', error);

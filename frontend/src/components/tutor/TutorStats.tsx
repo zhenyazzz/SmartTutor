@@ -42,7 +42,9 @@ export function TutorStats() {
         setTutorId(tutorData.id);
 
         // Загружаем статистику
+        console.log(`[TutorStats] Loading stats for period: ${timePeriod}`);
         const statsData = await tutorService.getTutorStats(tutorData.id, timePeriod);
+        console.log(`[TutorStats] Stats loaded:`, statsData);
         setStats(statsData);
       } catch (err: any) {
         console.error('Error loading stats:', err);
@@ -144,7 +146,7 @@ export function TutorStats() {
               </div>
             )}
           </div>
-          <p className="text-gray-600 text-sm mb-1">Занятий в месяц</p>
+          <p className="text-gray-600 text-sm mb-1">Занятий за период</p>
           <p className="text-3xl text-gray-900">{stats.lessonsThisMonth}</p>
         </Card>
 
@@ -165,7 +167,7 @@ export function TutorStats() {
               </div>
             )}
           </div>
-          <p className="text-gray-600 text-sm mb-1">Доход в месяц</p>
+          <p className="text-gray-600 text-sm mb-1">Доход за период</p>
           <p className="text-3xl text-gray-900">{stats.earningsThisMonth.toLocaleString('ru-RU')} ₽</p>
         </Card>
 

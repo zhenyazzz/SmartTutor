@@ -539,7 +539,7 @@ async function seedDatabase() {
 
         await pool.query(
           `INSERT INTO lessons (tutor_id, student_id, subject_id, date_time, duration, price, status)
-           VALUES ($1, $2, $3, $4, $5, $6, 'COMPLETED')
+           VALUES ($1, $2, $3, $4, $5, $6, 'APPROVED')
            ON CONFLICT DO NOTHING`,
           [tutorId, studentId, subjectId, lessonDate, 60, lessonPrice]
         );
@@ -559,11 +559,14 @@ async function seedDatabase() {
         const minute = Math.random() < 0.5 ? 0 : 30;
         lessonDate.setHours(hour, minute, 0, 0);
 
+        // Будущие уроки: 80% одобрены, 20% отклонены
+        const status = Math.random() < 0.8 ? 'APPROVED' : 'REJECTED';
+        
         await pool.query(
           `INSERT INTO lessons (tutor_id, student_id, subject_id, date_time, duration, price, status)
-           VALUES ($1, $2, $3, $4, $5, $6, 'PLANNED')
+           VALUES ($1, $2, $3, $4, $5, $6, $7)
            ON CONFLICT DO NOTHING`,
-          [tutorId, studentId, subjectId, lessonDate, 60, lessonPrice]
+          [tutorId, studentId, subjectId, lessonDate, 60, lessonPrice, status]
         );
         createdLessonsCount++;
       }

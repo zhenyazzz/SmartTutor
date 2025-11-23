@@ -93,8 +93,8 @@ export const adminService = {
   },
 
   // Получить топ репетиторов
-  getTopTutors: async (limit: number = 10): Promise<TopTutor[]> => {
-    const response = await api.get<TopTutor[]>(`/admin/top-tutors?limit=${limit}`);
+  getTopTutors: async (limit: number = 10, period: string = 'year'): Promise<TopTutor[]> => {
+    const response = await api.get<TopTutor[]>(`/admin/top-tutors?limit=${limit}&period=${period}`);
     return response.data;
   }
 };
