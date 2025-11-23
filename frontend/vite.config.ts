@@ -55,9 +55,12 @@
     },
     server: {
       port: 5173,
+      host: '0.0.0.0', // Позволяет принимать соединения извне контейнера
       proxy: {
         '/api': {
-          target: 'http://localhost:3000',
+          // В Docker используем имя сервиса backend из docker-compose.yml
+          // Для локальной разработки можно изменить на http://localhost:3000
+          target: 'http://backend:3000',
           changeOrigin: true,
           secure: false,
         },
